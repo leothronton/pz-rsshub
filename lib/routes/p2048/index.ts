@@ -1,43 +1,104 @@
-import { Route } from '@/types';
-import ofetch from '@/utils/ofetch';
+import { Route, DataItem } from '@/types';
 import { load } from 'cheerio';
-import type { DataItem } from '@/types';
+import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
-    path: '/:section?',
-    name: '2048 论坛',
+    path: '/p2048/:id?',
+    name: 'hjd2048 板块订阅',
     url: 'hjd2048.com',
     maintainers: ['leothronton'],
-    example: '/p2048/1',
-    parameters: { section: '板块 ID，默认为 1' },
+    categories: ['forum'],
+    example: '/p2048/3',
+    parameters: {
+        id: '板块 ID，默认为 3',
+    },
     handler: async (ctx) => {
-        const { section = '1' } = ctx.req.param();
+        const { id = '3' } = ctx.req.param();
         const baseUrl = 'https://hjd2048.com';
-        const url = `${baseUrl}/thread0806.php?fid=${section}`;
+        const page = ctx.req.query('page') ?? '1';
 
-        const response = await ofetch(url);
+        const listUrl = `${baseUrl}/thread.php?fid=${id}&page=${page}`;
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': `${baseUrl}/`,
+        };
+
+        const response = await ofetch(listUrl, { headers });
         const $ = load(response);
-
-        const items: DataItem[] = $('.tr3.t_one')
-            .slice(0, 20)
+        const rows = $('tr')
             .toArray()
-            .map((el) => {
-                const $el = $(el);
-                const titleEl = $el.find('.subject .tal a');
-                const title = titleEl.text();
-                const link = baseUrl + titleEl.attr('href');
-                const pubDate = $el.find('a > span').attr('title');
+            .filter((el) => $(el).find('a.subject').length > 0);
+
+        if (rows.length === 0) {
+            return { title: `hjd2048 - 板块 ${id}`, link: listUrl, item: [] };
+        }
+
+        const items: DataItem[] = await Promise.all(
+            rows.map(async (el): Promise<DataItem> => {
+                const $row = $(el);
+                const linkEl = $row.find('a.subject');
+                const title = linkEl.text().trim();
+                const href = linkEl.attr('href') ?? '';
+                const fullLink = href.startsWith('http') ? href : `${baseUrl}/${href}`;
+
+                const author = $row.find('a.bl').text().trim() || '未知用户';
+                const dateText = $row.find('.tal.y-style span.f10.gray').text().trim() || $row.find('.f10.gray-').text().trim();
+                const pubDate = dateText ? timezone(parseDate(dateText), 8) : undefined;
+
+                // 抓取正文
+                const description = await ctx.cache.tryGet(fullLink, async () => {
+                    try {
+                        const postRes = await ofetch(fullLink, { headers });
+                        const $post = load(postRes);
+                        // 尝试多种选择器
+                        const contentEl = $post('#message, .t_f, .postmessage, .content').first();
+                        let html = contentEl.length ? contentEl.html() : '';
+
+                        if (html) {
+                            // 处理图片链接
+                            const $doc = load(html);
+                            $doc('img').each((_, imgEl) => {
+                                let src = $doc(imgEl).attr('src') || $doc(imgEl).attr('data-src');
+                                if (src) {
+                                    if (!src.startsWith('http') && !src.startsWith('data:')) {
+                                        src = `${baseUrl}/${src.replace(/^\//, '')}`;
+                                    }
+                                    $doc(imgEl).attr('src', src);
+                                }
+                            });
+                            return $doc.html();
+                        }
+                    } catch (err) {
+                        // 失败时记录日志
+                    }
+                    return undefined;
+                });
+
+                const imgEl = $row.find('td.tal img, a.subject img').first();
+                const rawImg = imgEl.attr('data-src') || imgEl.attr('src');
+                const enclosure = rawImg
+                    ? {
+                        url: rawImg.startsWith('http') ? rawImg : `${baseUrl}${rawImg}`,
+                        type: 'image/jpeg',
+                    }
+                    : undefined;
 
                 return {
                     title,
-                    link,
+                    link: fullLink,
+                    author,
                     pubDate,
-                } as DataItem;
-            });
+                    description: description || title,
+                    enclosure,
+                };
+            })
+        );
 
         return {
-            title: `2048 论坛 - 板块 ${section}`,
-            link: url,
+            title: `hjd2048 - 板块 ${id}`,
+            link: `${baseUrl}/thread.php?fid=${id}`,
             item: items,
         };
     },
