@@ -27,7 +27,8 @@ export const route: Route = {
             Referer: `${baseUrl}/`,
         };
 
-        const response = await ofetch(listUrl, { headers });
+        // Increased timeout to 60s as requested
+        const response = await ofetch(listUrl, { headers, timeout: 60000 });
         const $ = load(response);
         const rows = $('tr')
             .toArray()
@@ -49,10 +50,10 @@ export const route: Route = {
                 const dateText = $row.find('.tal.y-style span.f10.gray').text().trim() || $row.find('.f10.gray-').text().trim();
                 const pubDate = dateText ? timezone(parseDate(dateText), 8) : undefined;
 
-                // 抓取正文
+                // 抓取正文 (also increased timeout)
                 const description = await cache.tryGet(fullLink, async () => {
                     try {
-                        const postRes = await ofetch(fullLink, { headers });
+                        const postRes = await ofetch(fullLink, { headers, timeout: 60000 });
                         const $post = load(postRes);
                         const contentEl = $post('#message, .t_f, .postmessage, .content').first();
                         const html = contentEl.length ? contentEl.html() : '';
