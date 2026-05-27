@@ -3,6 +3,7 @@ import { load } from 'cheerio';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
+import cache from '@/utils/cache';
 
 export const route: Route = {
     path: '/p2048/:id?',
@@ -48,7 +49,7 @@ export const route: Route = {
                 const pubDate = dateText ? timezone(parseDate(dateText), 8) : undefined;
 
                 // 抓取正文
-                const description = await ctx.cache.tryGet(fullLink, async () => {
+                const description = await cache.tryGet(fullLink, async () => {
                     try {
                         const postRes = await ofetch(fullLink, { headers });
                         const $post = load(postRes);
