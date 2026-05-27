@@ -1,13 +1,14 @@
-import { Route, DataItem } from '@/types';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
-import cache from '@/utils/cache';
 
 export const route: Route = {
-    path: '/p2048/:id?',
-    name: 'hjd2048 板块订阅',
+    path: '/:id?',
+    name: '板块订阅',
     url: 'hjd2048.com',
     maintainers: ['leothronton'],
     categories: ['forum'],
@@ -23,7 +24,7 @@ export const route: Route = {
         const listUrl = `${baseUrl}/thread.php?fid=${id}&page=${page}`;
         const headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': `${baseUrl}/`,
+            Referer: `${baseUrl}/`,
         };
 
         const response = await ofetch(listUrl, { headers });
@@ -36,8 +37,8 @@ export const route: Route = {
             return { title: `hjd2048 - 板块 ${id}`, link: listUrl, item: [] };
         }
 
-        const items: DataItem[] = await Promise.all(
-            rows.map(async (el): Promise<DataItem> => {
+        const items = await Promise.all(
+            rows.map(async (el) => {
                 const $row = $(el);
                 const linkEl = $row.find('a.subject');
                 const title = linkEl.text().trim();
@@ -53,12 +54,10 @@ export const route: Route = {
                     try {
                         const postRes = await ofetch(fullLink, { headers });
                         const $post = load(postRes);
-                        // 尝试多种选择器
                         const contentEl = $post('#message, .t_f, .postmessage, .content').first();
-                        let html = contentEl.length ? contentEl.html() : '';
+                        const html = contentEl.length ? contentEl.html() : '';
 
                         if (html) {
-                            // 处理图片链接
                             const $doc = load(html);
                             $doc('img').each((_, imgEl) => {
                                 let src = $doc(imgEl).attr('src') || $doc(imgEl).attr('data-src');
@@ -71,19 +70,19 @@ export const route: Route = {
                             });
                             return $doc.html();
                         }
-                    } catch (err) {
+                    } catch {
                         // 失败时记录日志
                     }
-                    return undefined;
+                    return;
                 });
 
                 const imgEl = $row.find('td.tal img, a.subject img').first();
                 const rawImg = imgEl.attr('data-src') || imgEl.attr('src');
                 const enclosure = rawImg
                     ? {
-                        url: rawImg.startsWith('http') ? rawImg : `${baseUrl}${rawImg}`,
-                        type: 'image/jpeg',
-                    }
+                          url: rawImg.startsWith('http') ? rawImg : `${baseUrl}${rawImg}`,
+                          type: 'image/jpeg',
+                      }
                     : undefined;
 
                 return {
